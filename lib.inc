@@ -15,18 +15,12 @@
 
 section .text
 
-; some common function
-sys_print:
-	mov	rdi, stdout
-	mov	rax, syscall_write
-	syscall
-	ret
-
 ; Принимает код возврата и завершает текущий процесс
 ; #1 rdi - already in syscall argument(int error_code)
 exit:
 	mov	rax, syscall_exit	; set system call number
 	syscall			; exit
+	ret
 
 ; Принимает указатель на нуль-терминированную строку, возвращает её длину
 ; #1 rdi - address of string
@@ -43,27 +37,42 @@ string_length:
 ; Принимает указатель на нуль-терминированную строку, выводит её в stdout
 ; #1 rdi - address of string
 print_string:
+	push rdi
 	call	string_length	; adr already in rdi -> size in rax
+	pop rdi
 	mov	rsi, rdi		; mov source index for syscall
 	mov	rdx, rax		; mov str size for syscall
-	call	sys_print
+; some common function
+sys_print:
+	mov	rdi, stdout
+	mov	rax, syscall_write
+	syscall
 	ret
 
+; Переводит строку (выводит символ с кодом 0xA)
+print_newline:
+	mov	rdi, 0xA	; load char
 ; Принимает код символа и выводит его в stdout
 ; #1 rdi - code of the symbol
 print_char:
 	push	di		; store symbol(only word) in stack(to address in memory)
 	mov	rsi, rsp	; get the address of of top(char)
 	mov	rdx, 1	; char
-	call	sys_print
+	call	sys_print	; di saved, no need to push
 	pop	di		; restore val or add esp, 1 
 	ret
 
-; Переводит строку (выводит символ с кодом 0xA)
-print_newline:
-	mov	rdi, 0xA	; load char
-	jmp	print_char	; no ret, can be refactored
 
+; Выводит знаковое 8-байтовое число в десятичном формате 
+; #1 rdi - signed int
+print_int:
+	test	rdi, rdi	; set flags
+	jns	print_uint	; check if signed
+	neg	rdi		; neg to print as usual
+	push	rdi		; save data
+	mov	rdi, "-"	; set to print -
+	call	print_char
+	pop	rdi		; restore
 ; Выводит беззнаковое 8-байтовое число в десятичном формате 
 ; Совет: выделите место в стеке и храните там результаты деления
 ; Не забудьте перевести цифры в их ASCII коды.
@@ -83,21 +92,9 @@ print_uint:
 	test	rax, rax		; check quotient
 	jnz	.loop_divide	; if not null repeat
 	mov	rdi, rsp		; move str start adr
-	call	print_string
+	call	print_string	; rdi isnt used afterwards, no need to save
 	mov	rsp, r9		; restore
 	ret
-
-; Выводит знаковое 8-байтовое число в десятичном формате 
-; #1 rdi - signed int
-print_int:
-	test	rdi, rdi	; set flags
-	jns	print_uint	; check if signed
-	neg	rdi		; neg to print as usual
-	push	rdi		; save data
-	mov	rdi, "-"	; set to print -
-	call	print_char
-	pop	rdi		; restore
-	jmp	print_uint	; no ret, can be refactored
 
 ; Принимает два указателя на нуль-терминированные строки, возвращает 1 если они равны, 0 иначе
 ; #1 rdi - string address
@@ -142,7 +139,11 @@ read_word:
 	mov	r8, rdi	; buffer start
 	mov	r9, rsi	; max size
 .read_loop:
+	push	rdi
+	push	rsi
 	call	read_char
+	pop	rsi
+	pop	rdi
 	cmp	rax, 0x20
 	je	.check_in_word
 	cmp	rax, 0x9
@@ -209,7 +210,9 @@ parse_int:
 	cmp	cl, "-"		; check if signed
 	jne	parse_uint
 	inc	rdi
+	push	rdi
 	call	parse_uint
+	pop	rdi
 	neg	rax			; neg if signed
 	inc	rdx			; inc counter if signed
    	ret
@@ -221,7 +224,13 @@ parse_int:
 ; #2 rsi - buffer address
 ; #3 rdx - buffer size
 string_copy:
+	push	rdi
+	push	rsi
+	push	rdx
 	call	string_length	; calculate string length
+	pop	rdx
+	pop	rsi
+	pop	rdi
 	cmp	rax, rdx		; compare
 	jae	.exception		; break if doesnt fit
 	xor	rax, rax		; counter
@@ -235,4 +244,3 @@ string_copy:
 .exception:
 	mov	rax, 0
 	ret
-
